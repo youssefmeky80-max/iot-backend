@@ -1,12 +1,13 @@
 {
   "name": "iot-backend",
   "version": "1.0.0",
-  "description": "IoT Server for ESP and Flutter",
-  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.0.0",
+    "helmet": "^7.0.0",
+    "express-rate-limit": "^7.0.0",
+    "dotenv": "^16.0.0"
   }
 }
