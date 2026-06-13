@@ -16,7 +16,7 @@ const limiter = rateLimit({
 });
 app.use("/device/", limiter);
 
-// 3. مفتاح الأمان (غير الكلمة دي للي تحبه وحدثها في كود ESP والفلتر)
+// 3. مفتاح الأمان (حدثه في كود الـ ESP والفلتر ليكون متطابقاً)
 const API_KEY = process.env.API_KEY || "your_secret_key_here"; 
 
 // 4. وظيفة التحقق من الهوية (Middleware)
@@ -29,10 +29,79 @@ const authMiddleware = (req, res, next) => {
     }
 };
 
+// قواعد البيانات المؤقتة (قيد التشغيل)
 let devicesData = {};
 let commands = {};
+let users = []; // 💾 مصفوفة لحفظ حسابات المستخدمين الجدد
 
 // --- المسارات (Endpoints) ---
+
+// 🆕 1. مسار تسجيل حساب جديد من الفلتر (Register)
+app.post("/device/register", authMiddleware, (req, res) => {
+    const { name, email, phone, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ message: "الإيميل والباسورد مطلوبين!" });
+    }
+
+    // التأكد إن الإيميل مش متسجل قبل كده
+    const userExists = users.find(u => u.email === email.toLowerCase());
+    if (userExists) {
+        return res.status(400).json({ message: "هذا الحساب مسجل بالفعل!" });
+    }
+
+    // حفظ الحساب الجديد في الـ Array
+    const newUser = {
+        name,
+        email: email.toLowerCase(),
+        phone,
+        password, // ملاحظة: في المشاريع الحقيقية بنشفر الباسورد، بس ده ممتاز للمشروع الحالي
+        provider: "email" // تسجيل عادي
+    };
+
+    users.push(newUser);
+    console.log(`🆕 مستخدم جديد سجل: ${email}`);
+    res.status(201).json({ message: "تم تسجيل الحساب بنجاح!" });
+});
+
+// 🆕 2. مسار تسجيل الدخول (Email & Password أو Google/Apple)
+app.post("/device/login", authMiddleware, (req, res) => {
+    const { email, password, isSocialLogin, provider } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ message: "الإيميل مطلوب!" });
+    }
+
+    const cleanEmail = email.toLowerCase();
+
+    // 🌟 حالة أ: لو المستخدم جاي من (جوجل أو أبل)
+    if (isSocialLogin === true) {
+        let user = users.find(u => u.email === cleanEmail);
+        
+        // لو أول مرة يدخل بجوجل/أبل، بنعمله حساب عندنا فوراً في ثواني
+        if (!user) {
+            user = {
+                name: req.body.name || "Social User",
+                email: cleanEmail,
+                provider: provider || "social"
+            };
+            users.push(user);
+            console.log(`🔗 تم إنشاء حساب تلقائي لجوجل/أبل: ${cleanEmail}`);
+        }
+        
+        console.log(`🔓 تم دخول مستخدم بواسطة ${provider}: ${cleanEmail}`);
+        return res.status(200).json({ message: "تم تسجيل الدخول بنجاح!", user });
+    }
+
+    // 📧 حالة ب: تسجيل دخول عادي (إيميل وباسورد)
+    const user = users.find(u => u.email === cleanEmail);
+    if (!user || user.password !== password) {
+        return res.status(401).json({ message: "الإيميل أو كلمة المرور غير صحيحة!" });
+    }
+
+    console.log(`🔓 تم دخول مستخدم عادي: ${cleanEmail}`);
+    res.status(200).json({ message: "تم تسجيل الدخول بنجاح!", user });
+});
 
 // 📥 استقبال بيانات من الـ ESP
 app.post("/device/data", authMiddleware, (req, res) => {
@@ -67,7 +136,6 @@ app.get("/device/command/:id", authMiddleware, (req, res) => {
     const id = req.params.id;
     const cmd = commands[id] || null;
     
-    // مسح الأمر بعد سحبه لضمان عدم تنفيذه مرتين
     commands[id] = null; 
     res.json({ command: cmd });
 });
